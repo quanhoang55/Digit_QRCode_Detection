@@ -82,7 +82,7 @@ class Settings:
     jpeg_quality: int
     stream_fps: float
     display_colors: tuple[str, ...] = ("red",)
-    display_max_candidates: int = 3
+    display_max_candidates: int = 5
     display_image_size: int = 640
     detection_debug: bool = False
 
@@ -138,7 +138,7 @@ def load_settings(env_path: Path = BACKEND_ROOT / ".env") -> Settings:
         jpeg_quality=quality,
         stream_fps=_float(values, "STREAM_FPS", 20),
         display_colors=display_colors,
-        display_max_candidates=_integer(values, "DISPLAY_MAX_CANDIDATES", 3),
+        display_max_candidates=_integer(values, "DISPLAY_MAX_CANDIDATES", 5),
         display_image_size=_integer(values, "DISPLAY_IMAGE_SIZE", 640),
         detection_debug=_boolean(values, "DETECTION_DEBUG", False),
     )

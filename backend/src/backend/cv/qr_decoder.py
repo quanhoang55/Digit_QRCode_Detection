@@ -110,6 +110,27 @@ class QrDecoder:
                 return result
         return None
 
+    def _scan_tiles(self, image: np.ndarray) -> QrResult | None:
+        """Decode small QRs in local tiles when full-frame localization is distracted."""
+        height, width = image.shape[:2]
+        tile_size = max(240, min(400, round(max(width, height) * 0.20)))
+        step = max(1, round(tile_size * 0.75))
+        for y1 in range(0, max(1, height - 100), step):
+            for x1 in range(0, max(1, width - 100), step):
+                crop = image[y1:min(height, y1 + tile_size), x1:min(width, x1 + tile_size)]
+                if min(crop.shape[:2]) < 100:
+                    continue
+                sample = cv2.resize(crop, None, fx=2, fy=2, interpolation=cv2.INTER_CUBIC)
+                try:
+                    data, points, _ = self._detector.detectAndDecode(sample)
+                except cv2.error:
+                    # OpenCV can reject a degenerate contour in a cluttered tile.
+                    continue
+                result = self._result(data, points, x1, y1, 2)
+                if result is not None:
+                    return result
+        return None
+
     def decode(self, image: np.ndarray) -> QrResult | None:
         """Return a decoded QR and full-frame box, never data from an older frame."""
         if not isinstance(image, np.ndarray) or image.ndim not in (2, 3) or image.size == 0:
@@ -135,6 +156,12 @@ class QrDecoder:
                 self._last_box = result.box
                 self.last_stage = "localized_crop"
                 return result
+
+        result = self._scan_tiles(image)
+        if result is not None:
+            self._last_box = result.box
+            self.last_stage = "tiled_crop"
+            return result
 
         # Reacquire a moved QR even if the locator missed after a cached hit.
         if had_cached_box or seen:

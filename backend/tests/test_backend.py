@@ -21,6 +21,7 @@ from backend.camera.source import parse_source
 from backend.cv.types import Box, Digit, QrResult
 from backend.cv.digit_detector import DigitDetector
 from backend.cv.digit_detector import _filter_row
+from backend.cv.digit_detector import _refine_ambiguous_digit
 from backend.cv.display_locator import DisplayRegion, locate_display_candidates
 from backend.cv.qr_decoder import QrDecoder
 from backend.main import create_app
@@ -58,6 +59,16 @@ class FakeDetector:
 
 
 class BackendTests(unittest.TestCase):
+    def test_segment_geometry_refines_ambiguous_model_classes(self):
+        image = np.zeros((100, 80, 3), dtype=np.uint8)
+        # Bright upper-left and lower-right strokes describe a seven-segment 5.
+        image[20:45, 10:20] = 255
+        image[55:82, 60:70] = 255
+        detected = Digit("2", 0.9, Box(0, 0, 80, 100), 4)
+        refined = _refine_ambiguous_digit(image, detected)
+        self.assertEqual(refined.value, "5")
+        self.assertEqual(refined.class_id, 7)
+
     def test_new_model_maps_sign_and_digits_but_ignores_point(self):
         class FakeBoxes:
             xyxy = np.array([[0, 20, 8, 35], [12, 30, 16, 35], [20, 20, 30, 50], [35, 20, 45, 50], [50, 20, 60, 50]])

@@ -92,8 +92,52 @@ def _reading_score(region: DisplayRegion, digits: list[Digit]) -> float:
     return len(digits) * 0.8 + sum(item.confidence for item in digits) + region.locator_score * 0.2 + max(0.0, 1.0 - spread) * 0.25
 
 
+def _refine_ambiguous_digit(image: np.ndarray, digit: Digit) -> Digit:
+    """Resolve the model's recurring 2/3/5 confusion from lit segment geometry."""
+    if str(digit.value) not in {"2", "3", "5"}:
+        return digit
+    height, width = image.shape[:2]
+    x1 = max(0, int(np.floor(digit.box.x)))
+    y1 = max(0, int(np.floor(digit.box.y)))
+    x2 = min(width, int(np.ceil(digit.box.x + digit.box.width)))
+    y2 = min(height, int(np.ceil(digit.box.y + digit.box.height)))
+    crop = image[y1:y2, x1:x2]
+    if crop.size == 0 or crop.shape[0] < 12 or crop.shape[1] < 8:
+        return digit
+
+    value = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)[:, :, 2]
+    bright = value > np.percentile(value, 65)
+    crop_height, crop_width = bright.shape
+
+    def occupancy(left: float, right: float, top: float, bottom: float) -> float:
+        sample = bright[
+            round(crop_height * top):round(crop_height * bottom),
+            round(crop_width * left):round(crop_width * right),
+        ]
+        return float(np.mean(sample)) if sample.size else 0.0
+
+    upper_left = occupancy(0.00, 0.35, 0.18, 0.45)
+    upper_right = occupancy(0.65, 1.00, 0.18, 0.45)
+    lower_left = occupancy(0.00, 0.35, 0.55, 0.82)
+    lower_right = occupancy(0.65, 1.00, 0.55, 0.82)
+
+    refined: str | None = None
+    if upper_right - upper_left > 0.15 and lower_right - lower_left > 0.15:
+        refined = "3"
+    elif upper_left - upper_right > 0.15 and lower_right >= lower_left - 0.10:
+        refined = "5"
+    elif lower_left - lower_right > 0.15:
+        refined = "2"
+    if refined is None or refined == str(digit.value):
+        return digit
+
+    class_id = int(refined) if isinstance(digit.value, int) else int(refined) + 2
+    logger.debug("segment refinement: model=%s refined=%s box=%s", digit.value, refined, digit.box.as_dict())
+    return Digit(int(refined) if isinstance(digit.value, int) else refined, digit.confidence, digit.box, class_id)
+
+
 class DigitDetector:
-    def __init__(self, model_path: Path, confidence: float, *, display_colors: Sequence[str] = ("red",), max_candidates: int = 3, image_size: int = 640) -> None:
+    def __init__(self, model_path: Path, confidence: float, *, display_colors: Sequence[str] = ("red",), max_candidates: int = 5, image_size: int = 640) -> None:
         self.confidence = confidence
         self.display_colors = tuple(display_colors)
         self.max_candidates = max_candidates
@@ -127,6 +171,7 @@ class DigitDetector:
             x1, y1, x2, y2 = coordinates
             detections.append(Digit(value, float(score), Box(float(x1 + region.x1), float(y1 + region.y1), float(x2 - x1), float(y2 - y1)), class_index))
         logger.debug("crop=%s preprocessing=%s raw=%s ignored_none=%s", region.bbox, preprocessing, [(item.value, round(item.confidence, 3), item.box.as_dict()) for item in detections], ignored_none)
+        detections = [_refine_ambiguous_digit(image, item) for item in detections]
         return _filter_row(detections), ignored_none
 
     def detect_with_details(self, image: np.ndarray) -> DetectionRun:
