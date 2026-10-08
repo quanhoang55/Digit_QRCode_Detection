@@ -8,7 +8,7 @@ Build one local FastAPI process that:
 2. Decodes QR data and detects seven-segment digits.
 3. Stabilizes and validates one recognition result.
 4. Streams video and sends lightweight detection metadata to the frontend.
-5. Saves operator-approved measurements locally in one durable file.
+5. Saves operator-approved measurements locally in one durable SQLite or CSV file.
 
 `docs/ENDPOINT.md` is the authoritative HTTP and WebSocket contract. This document defines the internal backend design required to implement it efficiently.
 
@@ -199,7 +199,8 @@ backend/src/backend/
 ├── storage/
 │   ├── sqlite_repository.py
 │   ├── schema.sql
-│   └── csv_exporter.py      # optional explicit export only
+│   ├── csv_repository.py    # atomic primary CSV storage
+│   └── csv_exporter.py      # explicit export/copy
 └── tests/
 ```
 
@@ -207,9 +208,17 @@ Route handlers only parse input, invoke a service, and serialize a response. The
 
 ## 7. Local Storage Design
 
-### Use SQLite as the primary local file
+### Select CSV or SQLite local storage
 
-When `STORAGE_ENABLE=true`, use the Python standard-library `sqlite3` module. The database is one portable file, for example:
+When `STORAGE_ENABLE=true` and `STORAGE_TYPE=csv`, save directly to:
+
+```text
+backend/data/measurements.csv
+```
+
+Each successful operator save atomically rewrites the CSV under a lock. It contains the stable ID, QR payload, raw digits, numeric value, confidence, capture time, and save time. Atomic replacement prevents inference or process failures from leaving a partially written file.
+
+When `STORAGE_TYPE=sqlite`, use the Python standard-library `sqlite3` module. The database is one portable file, for example:
 
 ```text
 backend/data/measurements.db
@@ -217,7 +226,7 @@ backend/data/measurements.db
 
 SQLite is still a local-file solution, but it adds atomic transactions, unique/duplicate checks, stable IDs, timestamps, sorting, and safe reads while the frontend is active. It does not require Supabase, MongoDB, Docker, or a database server.
 
-With `STORAGE_ENABLE=false`, do not initialize SQLite or create the file. `GET /measurements` returns an empty array and `POST /measurements` returns `503 STORAGE_DISABLED`. QR and digit recognition continue to appear in the frontend.
+With `STORAGE_ENABLE=false`, do not initialize either store or create a file. `GET /measurements` returns an empty array and `POST /measurements` returns `503 STORAGE_DISABLED`. QR and digit recognition continue to appear in the frontend.
 
 ```sql
 CREATE TABLE IF NOT EXISTS measurements (
@@ -246,7 +255,7 @@ PRAGMA busy_timeout = 5000;
 
 ### CSV export
 
-Provide CSV only as an explicit export operation, such as a CLI command or future `GET /measurements/export.csv`. Generate it by querying SQLite, writing a temporary file, then atomically replacing the final export file. Do not append to a CSV from camera/inference threads.
+The explicit export command works with either primary store. Generate exports by reading through the repository interface, writing a temporary file, then atomically replacing the final export file.
 
 This gives the user a simple spreadsheet-compatible file without giving up reliable persistence.
 
@@ -255,7 +264,7 @@ This gives the user a simple spreadsheet-compatible file without giving up relia
 At startup:
 
 1. Load settings.
-2. When storage is enabled, create `data/`, initialize SQLite schema, and verify the connection.
+2. When storage is enabled, create `data/`, initialize the selected CSV or SQLite repository, and verify it.
 3. Load trained digit weights from `backend/model/best.pt` by default. If absent, report model unavailability while camera and QR continue operating.
 4. Start the shared camera capture service.
 5. Start the processing service and WebSocket manager.

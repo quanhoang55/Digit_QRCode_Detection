@@ -12,7 +12,7 @@ def health(request: Request):
     camera = "connected" if state.camera.connected else "disconnected"
     model = "loaded" if state.detector is not None else "unavailable"
     database = "ready" if state.repository is not None and state.repository.healthy else "disabled" if not state.settings.storage_enable else "unavailable"
-    body = {"status": "ok", "camera": camera, "model": model, "database": database, "storage_enabled": database == "ready"}
+    body = {"status": "ok", "camera": camera, "model": model, "database": database, "storage_type": state.settings.storage_type if state.settings.storage_enable else None, "storage_enabled": database == "ready"}
     if camera != "connected":
         code, message = "CAMERA_UNAVAILABLE", "The camera is not connected."
     elif model != "loaded":

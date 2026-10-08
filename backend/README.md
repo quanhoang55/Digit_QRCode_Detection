@@ -30,9 +30,21 @@ At the normal log level, the terminal shows digit or QR detections and their tim
 
 ## Storage
 
-`STORAGE_ENABLE=false` skips SQLite initialization. `GET /measurements` returns `[]`, and `POST /measurements` returns `503 STORAGE_DISABLED`. Recognition and camera streaming still run. Set `STORAGE_ENABLE=true` to create `backend/data/measurements.db` automatically; no separate database server or manual schema setup is needed.
+`STORAGE_ENABLE=false` skips local storage initialization. `GET /measurements` returns `[]`, and `POST /measurements` returns `503 STORAGE_DISABLED`. Recognition and camera streaming still run.
 
-When storage is enabled, export saved records to a spreadsheet-compatible file with:
+For a directly readable CSV file, use:
+
+```env
+STORAGE_ENABLE=true
+STORAGE_TYPE=csv
+CSV_PATH=backend/data/measurements.csv
+```
+
+The frontend's **Save measurement** button writes the validated QR data, raw digits, numeric value, confidence, capture time, and save time to that file. The backend creates the folder and CSV header automatically. Writes are locked and atomically replace the file so camera processing cannot leave a partially written CSV.
+
+SQLite remains available by setting `STORAGE_TYPE=sqlite` and `DATABASE_PATH=backend/data/measurements.db`; no separate database server or manual schema setup is needed.
+
+When storage is enabled, export or copy the saved records to another spreadsheet-compatible file with:
 
 ```sh
 PYTHONPATH=src .venv/bin/python -m backend export-csv data/measurements.csv

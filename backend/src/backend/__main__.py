@@ -8,6 +8,7 @@ import uvicorn
 from backend.config import load_settings
 from backend.storage.csv_exporter import export_recent_csv
 from backend.storage.sqlite_repository import SqliteRepository
+from backend.storage.csv_repository import CsvRepository
 
 
 def main() -> None:
@@ -17,18 +18,21 @@ def main() -> None:
     arguments = parser.parse_args()
     settings = load_settings()
     if arguments.command == "export-csv":
-        if not settings.storage_enable or not settings.database_path.is_file():
-            parser.error("Enable SQLite storage and save records before exporting CSV")
+        source_path = settings.csv_path if settings.storage_type == "csv" else settings.database_path
+        if not settings.storage_enable or not source_path.is_file():
+            parser.error("Enable local storage and save records before exporting CSV")
         if arguments.destination is None:
             parser.error("export-csv requires a destination path")
-        repository = SqliteRepository(settings.database_path)
+        repository = CsvRepository(settings.csv_path) if settings.storage_type == "csv" else SqliteRepository(settings.database_path)
         repository.open()
         try:
             export_recent_csv(repository, arguments.destination)
         finally:
             repository.close()
         return
-    uvicorn.run("backend.main:app", host=settings.host, port=settings.port, workers=1, access_log=False)
+    from backend.main import app
+
+    uvicorn.run(app, host=settings.host, port=settings.port, workers=1, access_log=False)
 
 
 if __name__ == "__main__":

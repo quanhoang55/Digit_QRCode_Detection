@@ -96,10 +96,21 @@ The page connects to:
 
 ## Optional: enable local storage
 
-SQLite does not require a separate database server. To save measurements, change this setting in `backend/.env`:
+To save measurements directly to CSV, use these settings in `backend/.env`:
 
 ```env
 STORAGE_ENABLE=true
+STORAGE_TYPE=csv
+CSV_PATH=backend/data/measurements.csv
+```
+
+The Save button then writes the QR value, detected digits, numeric value, confidence, and timestamps to `backend/data/measurements.csv`.
+
+SQLite is also available without a separate database server:
+
+```env
+STORAGE_ENABLE=true
+STORAGE_TYPE=sqlite
 DATABASE_PATH=backend/data/measurements.db
 ```
 
@@ -136,3 +147,19 @@ Choose a random image from `ssd/test_2` by omitting the path:
 - **Frontend cannot reach a backend on another device:** set backend `HOST=0.0.0.0`, add the frontend origin to `CORS_ORIGINS`, and set the frontend variables `VITE_API_BASE_URL`, `VITE_VIDEO_STREAM_URL`, and `VITE_DETECTION_WS_URL` to the backend computer's LAN address.
 
 More details are available in [backend/README.md](backend/README.md), [model_training/README.md](model_training/README.md), and the API contract in [docs/ENDPOINT.md](docs/ENDPOINT.md).
+
+## Build a portable one-click folder
+
+To give the application to someone who does not have Python, Node.js, or `uv`, build a platform-specific standalone folder with PyInstaller:
+
+```cmd
+packaging\build_windows.bat
+```
+
+or on macOS:
+
+```sh
+./packaging/build_macos.sh
+```
+
+See [docs/PORTABLE_BUILD.md](docs/PORTABLE_BUILD.md) for the complete build, distribution, configuration, and launcher instructions.

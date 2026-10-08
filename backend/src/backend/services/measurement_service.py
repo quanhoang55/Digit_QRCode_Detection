@@ -6,11 +6,13 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 import sqlite3
+import csv
 
 from backend.api.schemas import MeasurementCreate
 from backend.config import Settings
 from backend.recognition.snapshot import SnapshotStore
 from backend.storage.sqlite_repository import SqliteRepository
+from backend.storage.csv_repository import CsvRepository
 
 
 @dataclass(frozen=True)
@@ -21,7 +23,7 @@ class MeasurementError(Exception):
 
 
 class MeasurementService:
-    def __init__(self, settings: Settings, snapshots: SnapshotStore, repository: SqliteRepository | None):
+    def __init__(self, settings: Settings, snapshots: SnapshotStore, repository: SqliteRepository | CsvRepository | None):
         self.settings = settings
         self.snapshots = snapshots
         self.repository = repository
@@ -35,7 +37,7 @@ class MeasurementService:
             raise MeasurementError(503, "DATABASE_UNAVAILABLE", "Local storage is unavailable.")
         try:
             return self.repository.list_recent(limit)
-        except sqlite3.Error as error:
+        except (sqlite3.Error, OSError, csv.Error, ValueError) as error:
             raise MeasurementError(503, "DATABASE_UNAVAILABLE", "Local storage is unavailable.") from error
 
     def save(self, request: MeasurementCreate) -> tuple[dict[str, Any], dict[str, Any]]:
@@ -60,7 +62,7 @@ class MeasurementService:
         saved_payload["confidence"] = result["confidence"]
         try:
             saved = self.repository.insert_if_new(saved_payload, snapshot.captured_at, self.settings.duplicate_window_seconds)
-        except sqlite3.Error as error:
+        except (sqlite3.Error, OSError, csv.Error, ValueError) as error:
             raise MeasurementError(503, "DATABASE_UNAVAILABLE", "Local storage is unavailable.") from error
         if saved is None:
             raise MeasurementError(409, "DUPLICATE_RECORD", "This QR and value were already saved recently.")

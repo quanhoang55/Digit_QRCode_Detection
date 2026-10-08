@@ -39,7 +39,9 @@ The backend must make these settings configurable through environment variables 
 | `INFERENCE_CONFIDENCE` | `0.70` | Minimum digit confidence accepted by recognition. |
 | `MODEL_PATH` | `backend/model/best.pt` | Path to trained digit weights; QR/camera service can start before this file exists. |
 | `DATABASE_PATH` | `backend/data/measurements.db` | Local SQLite database path, resolved from repository root. |
-| `STORAGE_ENABLE` | `false` | Create/use SQLite only when enabled. |
+| `CSV_PATH` | `backend/data/measurements.csv` | Local CSV path, resolved from repository root. |
+| `STORAGE_TYPE` | `sqlite` | Primary local store: `sqlite` or `csv`. |
+| `STORAGE_ENABLE` | `false` | Create/use the selected local store only when enabled. |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated development origins. |
 
 The frontend supports matching Vite variables:
@@ -249,7 +251,7 @@ Returns the saved record using the same schema as `GET /measurements`.
 
 After a successful save, publish a new recognition WebSocket event with `status: "SAVED"`. On the next distinct camera recognition, emit its actual new status rather than continuing to report `SAVED`.
 
-With `STORAGE_ENABLE=false`, return `503` with code `STORAGE_DISABLED`; do not create a database file. The frontend disables Save when the WebSocket event has `storage_enabled: false`.
+With `STORAGE_ENABLE=false`, return `503` with code `STORAGE_DISABLED`; do not create a storage file. The frontend disables Save when the WebSocket event has `storage_enabled: false`. With `STORAGE_TYPE=csv`, a successful save atomically updates `CSV_PATH` with the same fields returned by this endpoint.
 
 ## 5. WebSocket Endpoint
 

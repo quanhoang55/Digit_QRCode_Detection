@@ -33,6 +33,7 @@ from backend.recognition.stabilizer import Stabilizer
 from backend.services.processing_service import ProcessingService
 from backend.services.measurement_service import MeasurementService
 from backend.storage.csv_exporter import export_recent_csv
+from backend.storage.csv_repository import CsvRepository
 from backend.storage.sqlite_repository import SqliteRepository
 
 
@@ -59,6 +60,18 @@ class FakeDetector:
 
 
 class BackendTests(unittest.TestCase):
+    def test_fastapi_serves_frontend_build_and_spa_fallback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            frontend = Path(directory)
+            (frontend / "assets").mkdir()
+            (frontend / "index.html").write_text("<html>portable frontend</html>", encoding="utf-8")
+            (frontend / "assets" / "app.js").write_text("window.packaged = true", encoding="utf-8")
+            with patch("backend.main.frontend_dist_path", return_value=frontend):
+                client = TestClient(create_app(load_settings()))
+                self.assertIn("portable frontend", client.get("/").text)
+                self.assertIn("portable frontend", client.get("/client/route").text)
+                self.assertIn("window.packaged", client.get("/assets/app.js").text)
+
     def test_segment_geometry_refines_ambiguous_model_classes(self):
         image = np.zeros((100, 80, 3), dtype=np.uint8)
         # Bright upper-left and lower-right strokes describe a seven-segment 5.
@@ -158,7 +171,7 @@ class BackendTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             model_path = Path(directory) / "best.pt"
             model_path.touch()
-            settings = replace(load_settings(), model_path=model_path, database_path=Path(directory) / "measurements.db", storage_enable=True)
+            settings = replace(load_settings(), model_path=model_path, database_path=Path(directory) / "measurements.db", storage_enable=True, storage_type="sqlite")
             with patch("backend.main.CaptureService", FakeCamera), patch("backend.main.DigitDetector", FakeDetector):
                 with TestClient(create_app(settings)) as client:
                     now = datetime.now(timezone.utc)
@@ -359,12 +372,33 @@ class BackendTests(unittest.TestCase):
             self.assertIn("DEVICE-001", export_path.read_text(encoding="utf-8"))
             reopened.close()
 
+    def test_csv_persists_qr_and_digits_and_rejects_recent_duplicate(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "data" / "measurements.csv"
+            repository = CsvRepository(path)
+            repository.open()
+            payload = {"qr_data": "DEVICE-CSV", "raw_digits": "0643", "numeric_value": 6.43, "confidence": 0.92}
+            first = repository.insert_if_new(payload, datetime.now(timezone.utc), 60)
+            self.assertIsNotNone(first)
+            self.assertEqual(first["qr_data"], "DEVICE-CSV")
+            self.assertEqual(first["raw_digits"], "0643")
+            self.assertIsNone(repository.insert_if_new(payload, datetime.now(timezone.utc), 60))
+            repository.close()
+
+            reopened = CsvRepository(path)
+            reopened.open()
+            records = reopened.list_recent()
+            self.assertEqual(len(records), 1)
+            self.assertEqual(records[0]["numeric_value"], 6.43)
+            self.assertIn("qr_data,raw_digits,numeric_value", path.read_text(encoding="utf-8"))
+            reopened.close()
+
     def test_api_storage_modes_and_websocket(self):
         with tempfile.TemporaryDirectory() as directory:
             model_path = Path(directory) / "best.pt"
             model_path.touch()
             original = load_settings()
-            settings = replace(original, model_path=model_path, database_path=Path(directory) / "measurements.db", storage_enable=False)
+            settings = replace(original, model_path=model_path, database_path=Path(directory) / "measurements.db", storage_enable=False, storage_type="sqlite")
             with patch("backend.main.CaptureService", FakeCamera), patch("backend.main.DigitDetector", FakeDetector):
                 with TestClient(create_app(settings)) as client:
                     self.assertEqual(client.get("/health").status_code, 200)
@@ -388,6 +422,24 @@ class BackendTests(unittest.TestCase):
                     client.app.state.services.repository._healthy = False
                     self.assertEqual(client.get("/health").json()["detail"]["code"], "DATABASE_UNAVAILABLE")
                     self.assertEqual(client.get("/measurements").status_code, 503)
+
+    def test_api_saves_current_recognition_to_csv(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            model_path = root / "best.pt"
+            model_path.touch()
+            csv_path = root / "data" / "measurements.csv"
+            settings = replace(load_settings(), model_path=model_path, storage_enable=True, storage_type="csv", csv_path=csv_path)
+            with patch("backend.main.CaptureService", FakeCamera), patch("backend.main.DigitDetector", FakeDetector):
+                with TestClient(create_app(settings)) as client:
+                    now = datetime.now(timezone.utc)
+                    event = {"type": "recognition", "timestamp": int(now.timestamp() * 1000), "frame_width": 200, "frame_height": 100, "detections": [], "qr": {"data": "DEVICE-CSV"}, "raw_digits": "0643", "numeric_value": 6.43, "confidence": 0.91, "status": "READY_TO_SAVE"}
+                    client.app.state.services.snapshots.publish(RecognitionSnapshot(1, now, event))
+                    response = client.post("/measurements", json={"qr_data": "DEVICE-CSV", "raw_digits": "0643", "numeric_value": 6.43, "confidence": 0.90})
+                    self.assertEqual(response.status_code, 201, response.text)
+                    self.assertEqual(client.get("/health").json()["storage_type"], "csv")
+                    self.assertEqual(client.get("/measurements").json()[0]["raw_digits"], "0643")
+            self.assertIn("DEVICE-CSV", csv_path.read_text(encoding="utf-8"))
 
     def test_mjpeg_stream_contains_jpeg_frame(self):
         image = cv2.QRCodeEncoder_create().encode("DEVICE-001")

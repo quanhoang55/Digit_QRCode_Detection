@@ -11,16 +11,19 @@ from datetime import datetime, timezone
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 
 from backend.api import routes_health, routes_measurements, routes_stream, routes_websocket
 from backend.camera.capture_service import CaptureService
-from backend.config import Settings, load_settings
+from backend.config import Settings, frontend_dist_path, load_settings
 from backend.cv.digit_detector import DigitDetector
 from backend.recognition.snapshot import RecognitionSnapshot, SnapshotStore
 from backend.services.measurement_service import MeasurementService
 from backend.services.processing_service import ProcessingService
 from backend.services.websocket_manager import WebSocketManager
 from backend.storage.sqlite_repository import SqliteRepository
+from backend.storage.csv_repository import CsvRepository
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +35,7 @@ class Services:
     detector: DigitDetector | None
     snapshots: SnapshotStore
     websockets: WebSocketManager
-    repository: SqliteRepository | None
+    repository: SqliteRepository | CsvRepository | None
     measurements: MeasurementService
     processing: ProcessingService
 
@@ -51,10 +54,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         if settings.camera_source.lower().startswith("rtsp://") and settings.rtsp_transport in {"tcp", "udp"}:
             os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", f"rtsp_transport;{settings.rtsp_transport}")
 
-        repository: SqliteRepository | None = None
+        repository: SqliteRepository | CsvRepository | None = None
         if settings.storage_enable:
             try:
-                repository = SqliteRepository(settings.database_path)
+                repository = CsvRepository(settings.csv_path) if settings.storage_type == "csv" else SqliteRepository(settings.database_path)
                 repository.open()
             except Exception:
                 logger.exception("Could not initialize local storage")
@@ -100,6 +103,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(routes_stream.router)
     application.include_router(routes_measurements.router)
     application.include_router(routes_websocket.router)
+
+    frontend = frontend_dist_path()
+    index = frontend / "index.html"
+    assets = frontend / "assets"
+    if index.is_file():
+        if assets.is_dir():
+            application.mount("/assets", StaticFiles(directory=assets), name="frontend-assets")
+
+        @application.get("/", include_in_schema=False)
+        @application.get("/{path:path}", include_in_schema=False)
+        async def frontend_application(path: str = ""):
+            requested = (frontend / path).resolve()
+            if path and frontend.resolve() in requested.parents and requested.is_file():
+                return FileResponse(requested)
+            return FileResponse(index)
     return application
 
 
