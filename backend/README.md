@@ -14,6 +14,15 @@ An existing `.env` is already present. Keep it and use `.env.example` to review 
 
 Place trained checkpoint weights at `backend/model/best.pt` (the default `MODEL_PATH`), or set `MODEL_PATH` in `.env` to another path. The backend accepts both `model_1` (class IDs `0`–`9` are digits, optional class `10` is `none`) and `model_2` (class `0` is `-`, class `1` is `.`, classes `2`–`11` are digits `0`–`9`). The mapping is selected from the checkpoint's class names. Both models use `DECIMAL_PLACES` as an implied decimal separator: `040` → `0.40`, `643` → `6.43`, `1300` → `13.00` when set to `2`. The `model_2` dot class is ignored; a leading minus sign is kept for negative readings. Invalid sign placement never becomes save-ready. The base `yolo26n.pt` checkpoint is trained for COCO objects and will be rejected. Set only one `CAMERA_SOURCE`: a USB index such as `0`, or an RTSP/HTTP URL. For wireless cameras, keep credentials only in `.env` and do not commit it.
 
+On Windows, OBS Virtual Camera commonly works best through DirectShow:
+
+```env
+CAMERA_SOURCE=0
+CAMERA_BACKEND=DSHOW
+```
+
+Use `CAMERA_BACKEND=MSMF` to force Microsoft Media Foundation, or leave it blank/use `AUTO` to let OpenCV choose automatically. Restart the backend after changing this value.
+
 Run one server worker so only one process opens the camera:
 
 ```sh

@@ -16,6 +16,11 @@ from backend.config import Settings, redact_source
 logger = logging.getLogger(__name__)
 
 
+def _open_capture(source: int | str, camera_backend: str | None) -> cv2.VideoCapture:
+    api = backend_id(camera_backend)
+    return cv2.VideoCapture(source) if api is None else cv2.VideoCapture(source, api)
+
+
 @dataclass(frozen=True)
 class Frame:
     frame_id: int
@@ -76,11 +81,10 @@ class CaptureService:
 
     def _run(self) -> None:
         source = parse_source(self.settings.camera_source)
-        api = backend_id(self.settings.camera_backend)
         while not self._stop.is_set():
             capture = None
             try:
-                capture = cv2.VideoCapture(source, api)
+                capture = _open_capture(source, self.settings.camera_backend)
                 if not capture.isOpened():
                     logger.warning("Camera unavailable: %s", redact_source(str(source)))
                     self._mark_disconnected()

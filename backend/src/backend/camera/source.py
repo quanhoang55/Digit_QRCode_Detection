@@ -10,10 +10,11 @@ def parse_source(value: str) -> int | str:
     return int(value) if value.isdecimal() else value
 
 
-def backend_id(name: str | None) -> int:
-    if not name:
-        return cv2.CAP_ANY
-    candidate = name.upper()
+def backend_id(name: str | None) -> int | None:
+    """Map an optional .env backend name to an OpenCV API preference."""
+    if not name or name.strip().upper() in {"AUTO", "NONE"}:
+        return None
+    candidate = name.strip().upper()
     if not candidate.startswith("CAP_"):
         candidate = "CAP_" + candidate
     result = getattr(cv2, candidate, None)

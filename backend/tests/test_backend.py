@@ -16,8 +16,8 @@ from fastapi.testclient import TestClient
 
 from backend.config import load_settings
 from backend.config import redact_source
-from backend.camera.capture_service import Frame
-from backend.camera.source import parse_source
+from backend.camera.capture_service import Frame, _open_capture
+from backend.camera.source import backend_id, parse_source
 from backend.cv.types import Box, Digit, QrResult
 from backend.cv.digit_detector import DigitDetector
 from backend.cv.digit_detector import _filter_row
@@ -250,6 +250,16 @@ class BackendTests(unittest.TestCase):
         url = "rtsp://user:password@192.168.1.50:554/stream1"
         self.assertEqual(parse_source(url), url)
         self.assertNotIn("password", redact_source(url))
+        self.assertIsNone(backend_id(None))
+        self.assertIsNone(backend_id("AUTO"))
+        self.assertEqual(backend_id("DSHOW"), cv2.CAP_DSHOW)
+        self.assertEqual(backend_id("MSMF"), cv2.CAP_MSMF)
+        with patch("backend.camera.capture_service.cv2.VideoCapture") as video_capture:
+            _open_capture(0, None)
+            video_capture.assert_called_once_with(0)
+        with patch("backend.camera.capture_service.cv2.VideoCapture") as video_capture:
+            _open_capture(1, "DSHOW")
+            video_capture.assert_called_once_with(1, cv2.CAP_DSHOW)
 
     def test_digit_order_decimal_and_stability(self):
         stabilizer = Stabilizer(2)
