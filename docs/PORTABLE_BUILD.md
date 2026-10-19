@@ -1,79 +1,91 @@
 # Portable one-click builds
 
-The application is distributed as one folder per operating system. Reviewers do not need Python, Node.js, `uv`, or the source repository. They keep the complete folder together and launch `run.bat` on Windows or `run.command` on macOS.
+The release is one self-contained folder per operating system. A reviewer extracts the ZIP and double-clicks `run.bat` on Windows or `run.command` on macOS. Their computer does not need Python, Node.js, npm, `uv`, or the source repository.
 
-PyInstaller is not a cross-compiler. Build the Windows folder on Windows and the macOS folder on macOS. A Windows build cannot run on macOS, and a macOS build cannot run on Windows.
+PyInstaller is not a cross-compiler. Run the Windows builder on Windows and the macOS builder on macOS. Build separately for each CPU architecture you intend to support.
 
-## What the packaged application contains
+## Contents of a release
 
-- The Python interpreter and backend dependencies
-- FastAPI/Uvicorn
-- PyTorch, Ultralytics, and OpenCV
-- `model/best.pt`
-- The compiled React application
+- Embedded Python and all backend dependencies
+- FastAPI/Uvicorn, PyTorch, Ultralytics, and OpenCV
+- `backend/model/best.pt`
+- The production React frontend
+- The SQLite schema and CSV/SQLite storage code
 - A portable `.env`
 - A one-click launcher
 
-The packaged model and frontend are read-only bundle resources. Writable records are created beside the executable at `data/measurements.csv`. This avoids writing into PyInstaller's internal or temporary extraction directory.
+The bundled model and frontend are read-only resources. Saved records are written beside the executable at `data/measurements.csv`, not inside PyInstaller's internal directory.
 
-## Build for Windows
+## Builder requirements
 
-The build computer needs Git, Python 3.12, Node.js/npm, and `uv`. From Command Prompt at the repository root, run:
+Only the computer that creates a release needs:
+
+- Git
+- `uv` (it installs/manages the project's Python 3.12 runtime)
+- Node.js 20 or newer
+- Bun (preferred because `bun.lock` is committed), or npm
+- The tracked model at `backend/model/best.pt`
+
+Before building, clone or pull the complete repository. Do not build from a source ZIP that omitted the `.pt` model.
+
+## Build on Windows
+
+Open Command Prompt at the repository root and run:
 
 ```cmd
-packaging\build_windows.bat
+scripts\build_windows.bat
 ```
 
-The script builds React first and then runs the equivalent PyInstaller command:
-
-```cmd
-uv run --project backend --with pyinstaller pyinstaller --noconfirm --clean packaging\ScaleDetection.spec
-```
-
-The output is:
+The script checks prerequisites, installs frontend packages, builds React, bundles the backend, verifies required runtime files, and creates:
 
 ```text
-dist\ScaleDetection\
-├── ScaleDetection.exe
-├── run.bat
-├── .env
-└── _internal\
+release\ScaleDetection-Windows\
+release\ScaleDetection-Windows.zip
 ```
 
-Send the entire `dist\ScaleDetection` folder, preferably as a ZIP file. The recipient extracts it and double-clicks `run.bat`. The launcher starts the backend, waits for the HTTP server, and opens `http://127.0.0.1:8000` in the default browser.
+Send `ScaleDetection-Windows.zip`. The recipient must extract it first, then open the extracted folder and double-click `run.bat`. Running directly inside the ZIP will not work.
 
-Do not use PyInstaller `--onefile` for this application. The model, Torch libraries, and frontend are large, and one-file mode extracts them to a temporary directory on every launch. The provided `onedir` build starts faster and keeps writable data in a predictable location.
+The Windows artifact matches the architecture of the builder's Python installation. Use 64-bit Python on a normal 64-bit Windows client.
 
-## Build for macOS
+## Build on macOS
 
-On a macOS build computer, run:
+On the macOS build computer, run:
 
 ```sh
-chmod +x packaging/build_macos.sh
-./packaging/build_macos.sh
+chmod +x scripts/build_macos.sh scripts/run.command
+./scripts/build_macos.sh
 ```
 
-The output is:
+On Apple Silicon the output is:
 
 ```text
-dist/ScaleDetection/
-├── ScaleDetection
-├── run.command
-├── .env
-└── _internal/
+release/ScaleDetection-macOS-arm64/
+release/ScaleDetection-macOS-arm64.zip
 ```
 
-Send the complete folder as a ZIP created on macOS so executable permissions are retained. The recipient double-clicks `run.command`.
+An Intel Mac produces `ScaleDetection-macOS-x86_64`. Send the ZIP matching the recipient's Mac. The script uses macOS `ditto` so executable permissions survive the ZIP round trip.
 
-Unsigned macOS executables can be stopped by Gatekeeper. For internal testing, the recipient can right-click `run.command`, choose **Open**, and confirm once. For client distribution without that warning, sign and notarize the executable with an Apple Developer certificate.
+An unsigned download may be blocked by Gatekeeper. For private testing, the recipient can right-click `run.command`, choose **Open**, and confirm once. For professional distribution, sign and notarize the application with an Apple Developer ID. Building on Apple Silicon does not automatically create an Intel or universal executable.
+
+## Recipient instructions
+
+1. Extract the complete ZIP.
+2. Keep the executable, `_internal`, `.env`, launcher, and `data` folder together.
+3. Connect the USB camera or start the network/virtual camera.
+4. Double-click `run.bat` or `run.command`.
+5. Allow camera access and local-network access if the operating system asks.
+6. Keep the server window open while using the application.
+
+The launcher waits for `http://127.0.0.1:8000/health` and then opens the application in the default browser.
 
 ## Portable configuration
 
-The build copies `packaging/.env.portable` beside the executable. Its important values are:
+The build copies `scripts/.env.portable` to `.env` beside the executable. Important defaults are:
 
 ```env
 MODEL_PATH=model/best.pt
 CAMERA_SOURCE=0
+CAMERA_BACKEND=AUTO
 STORAGE_ENABLE=true
 STORAGE_TYPE=csv
 CSV_PATH=data/measurements.csv
@@ -81,16 +93,27 @@ HOST=127.0.0.1
 PORT=8000
 ```
 
-The recipient may edit this `.env` to choose a different USB camera index or a network-camera URL. `CAMERA_SOURCE=0` normally opens the first available camera.
+Edit only the extracted release's `.env` when a client needs a different camera:
 
-After a successful Save operation, records appear here:
+- Built-in/first USB camera: `CAMERA_SOURCE=0`
+- Another camera: `CAMERA_SOURCE=1` or `2`
+- OBS Virtual Camera on Windows: set `CAMERA_BACKEND=DSHOW`
+- Force Windows Media Foundation: set `CAMERA_BACKEND=MSMF`
+- Phone/IP camera: set `CAMERA_SOURCE` to its full HTTP or RTSP stream URL
 
-```text
-dist/ScaleDetection/data/measurements.csv
-```
+Saved rows appear in `data/measurements.csv`. Keep that CSV closed in Excel while saving because Excel may lock the file on Windows.
 
-Keep the CSV closed in Excel while saving on Windows because Excel may lock the file.
+## Build outputs and source control
 
-## Updating a portable build
+Generated `build/`, `dist/`, and `release/` directories are ignored by Git. Re-run the platform build after changing the frontend, backend, dependencies, portable configuration, or model. Always distribute the new complete ZIP; copying only the executable is insufficient.
 
-After changing frontend code, backend code, or the model, run the platform build script again. Always distribute the newly generated complete folder; do not copy only the executable because `_internal`, the frontend, and model are required.
+The old `packaging/build_windows.bat` and `packaging/build_macos.sh` paths remain as compatibility wrappers, but new documentation and automation should use `scripts/`.
+
+## Production distribution
+
+Unsigned executables commonly trigger Windows SmartScreen or macOS Gatekeeper. The build scripts create functional internal-test packages, but they do not provide trust certificates. For a polished client release:
+
+- Sign the Windows executable with an Authenticode certificate.
+- Sign and notarize the macOS build with an Apple Developer ID.
+- Test each ZIP on a clean computer of the same OS and CPU architecture.
+- Verify the intended physical camera index and permissions on that computer.

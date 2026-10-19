@@ -153,13 +153,14 @@ More details are available in [backend/README.md](backend/README.md), [model_tra
 To give the application to someone who does not have Python, Node.js, or `uv`, build a platform-specific standalone folder with PyInstaller:
 
 ```cmd
-packaging\build_windows.bat
+scripts\build_windows.bat
 ```
 
 or on macOS:
 
 ```sh
-./packaging/build_macos.sh
+chmod +x scripts/build_macos.sh
+./scripts/build_macos.sh
 ```
 
 See [docs/PORTABLE_BUILD.md](docs/PORTABLE_BUILD.md) for the complete build, distribution, configuration, and launcher instructions.
